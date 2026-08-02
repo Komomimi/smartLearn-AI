@@ -59,7 +59,10 @@ async def upload(
     if not pdf_bytes:
         raise HTTPException(400, "File must not be empty")
 
-    pages = extract_pages(pdf_bytes)
+    try:
+        pages = extract_pages(pdf_bytes)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
     characters = sum(len(p["text"]) for p in pages)
     if characters == 0:
@@ -81,14 +84,13 @@ def chat(body: ChatRequest):
     if not pages:
         raise HTTPException(
             404,
-            f"No PDF uploaded for chat_id={body.chat_id!r}. "
-            "Please upload a PDF via POST /upload?chat_id=<id> first.",
+            "No PDF uploaded yet. Please upload a PDF before asking questions.",
         )
 
     try:
         answer = answer_from_pages(pages, body.message)
-    except Exception:
-        raise HTTPException(502, "AI service unavailable")
+    except Exception as e:
+        raise HTTPException(502, str(e))
 
     valid_pages = {p["page"] for p in pages}
     citations = sorted(
