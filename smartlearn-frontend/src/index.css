@@ -34,9 +34,32 @@ body {
 }
 
 #root {
-  max-width: 680px;
+  max-width: 1200px;
   margin: 0 auto;
-  padding: 2.5rem 1.25rem 4rem;
+  padding: 2rem 1.5rem 3rem;
+}
+
+/* ── Split layout: PDF preview | Chat ────────── */
+.split-layout {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+}
+.split-left {
+  flex: 0 0 340px;
+  position: sticky;
+  top: 1rem;
+}
+.split-right {
+  flex: 1;
+  min-width: 0;
+  max-height: calc(100vh - 7rem);
+  overflow-y: auto;
+}
+
+/* slightly narrower preview card in split */
+.split-left .pdf-iframe-wrap {
+  aspect-ratio: 3 / 4.2;
 }
 
 /* ── Header ────────────────────────────────────── */
@@ -305,4 +328,125 @@ body {
   height: 1px;
   background: var(--border);
   margin: 0.25rem 0 1.5rem;
+}
+
+/* ── PDF preview ──────────────────────────────── */
+.pdf-preview-card {
+  /* same .card styling, no overrides needed */
+}
+.pdf-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 3rem 1.5rem;
+  color: var(--text-muted);
+}
+.pdf-placeholder-icon {
+  font-size: 2.5rem;
+  opacity: 0.35;
+}
+.pdf-placeholder-text {
+  font-size: 0.9rem;
+}
+.pdf-iframe-wrap {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: #fff; /* white behind PDF pages */
+}
+.pdf-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+/* ── Multi‑turn chat messages ──────────────────── */
+.msg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+.msg-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.msg-user,
+.msg-assistant {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+}
+.msg-role {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
+.msg-text {
+  margin: 0;
+  line-height: 1.65;
+  font-size: 0.95rem;
+  white-space: pre-wrap;
+}
+
+/* ── Citation button ───────────────────────────── */
+.chip-btn {
+  cursor: pointer;
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--primary-hover);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+}
+.chip-btn:hover {
+  background: rgba(99, 102, 241, 0.3);
+}
+
+/* ── Sources dropdown ──────────────────────────── */
+.sources-details {
+  margin-top: 0.75rem;
+}
+.sources-summary {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.sources-list {
+  margin: 0.5rem 0 0;
+  padding-left: 1.25rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.sources-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+.src-page {
+  font-weight: 700;
+  color: var(--text);
+}
+.src-score {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.src-preview {
+  width: 100%;
+  margin: 0.15rem 0 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.45;
 }

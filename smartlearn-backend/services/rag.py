@@ -85,6 +85,16 @@ def extract_pages_for_rag(source: Union[str, Path, bytes], page_limit: int | Non
     return records
 
 
+def extract_pages_from_bytes_for_rag(pdf_bytes: bytes) -> list[dict[str, object]]:
+    """Extract pages from raw PDF *pdf_bytes* — the upload‑route variant.
+
+    This is a thin wrapper around :func:`extract_pages_for_rag` that only
+    accepts ``bytes`` so the backend upload route never accidentally passes
+    a file path.
+    """
+    return extract_pages_for_rag(pdf_bytes)
+
+
 # ---------------------------------------------------------------------------
 # JSON persistence
 # ---------------------------------------------------------------------------
@@ -539,11 +549,15 @@ def load_model(model_name: str, device: str | None = None):
     device:
         ``"cpu"``, ``"cuda"``, or ``None`` (auto-detect via :func:`get_device`).
     """
+    import os as _os
+
+    _os.environ["HF_HUB_OFFLINE"] = "1"
+
     from sentence_transformers import SentenceTransformer  # type: ignore[import-untyped]
 
     if device is None:
         device = get_device()
-    return SentenceTransformer(model_name, device=device)
+    return SentenceTransformer(model_name, device=device, local_files_only=True)
 
 
 def embed_texts(model, texts: list[str], batch_size: int = 32):
@@ -882,6 +896,123 @@ def prepare_rag_document(
             "embeddings": str(paths["embeddings"]),
         },
         "history": [],
+    }
+
+
+def prepare_rag_chat_record(
+    chat_id: str,
+    filename: str,
+    pdf_bytes: bytes | None = None,
+    pages: list[dict[str, object]] | None = None,
+    upload_root: str | Path | None = None,
+    chunk_mode: str = "character_overlap",
+    chunk_size: int = 700,
+    overlap: int = 120,
+    model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
+    batch_size: int = 32,
+    artifact_root: str | Path | None = None,
+) -> dict[str, object]:
+    """Build the complete ``documents[chat_id]`` record for the upload route.
+
+    This is the single helper that ``POST /upload`` should call.  It saves the
+    PDF bytes to disk, extracts pages, and runs the full RAG preparation
+    pipeline so the stored record is ready for retrieval.
+
+    Parameters
+    ----------
+    chat_id:
+        The chat session id (used as the filename stem for the saved PDF).
+    filename:
+        Original uploaded filename, stored for display.
+    pdf_bytes:
+        Raw PDF bytes from the upload.  Required when *pages* is ``None``.
+    pages:
+        Pre‑extracted page records.  When ``None``, *pdf_bytes* is used to
+        extract them automatically.
+    upload_root:
+        Directory where ``{chat_id}.pdf`` is saved.  ``None`` defaults to
+        ``smartlearn-backend/uploads/`` relative to ``rag.py``'s location.
+    chunk_mode / chunk_size / overlap / model_name / batch_size:
+        Passed through to :func:`prepare_rag_document`.
+    artifact_root:
+        Artifact storage root.  ``None`` auto‑detects ``Day3/artifacts``.
+
+    Returns
+    -------
+    dict
+        A record with keys ``saved_pdf_path``, ``file_path``, ``filename``,
+        ``pages``, ``chunks``, ``history``, ``rag``, and ``chat_id``.
+    """
+    # ── resolve directories ───────────────────────────────────────────
+    if upload_root is None:
+        rag_dir = Path(__file__).resolve().parent          # services/
+        backend_dir = rag_dir.parent                        # smartlearn-backend/
+        upload_root = backend_dir / "uploads"
+    upload_root = Path(upload_root)
+    upload_root.mkdir(parents=True, exist_ok=True)
+
+    # ── save PDF ──────────────────────────────────────────────────────
+    if pdf_bytes is not None:
+        saved_path = upload_root / f"{chat_id}.pdf"
+        saved_path.write_bytes(pdf_bytes)
+    else:
+        saved_path = upload_root / f"{chat_id}.pdf"
+
+    # ── extract pages if needed ───────────────────────────────────────
+    if pages is None:
+        if pdf_bytes is None:
+            raise ValueError("One of 'pages' or 'pdf_bytes' must be provided.")
+        pages = extract_pages_for_rag(pdf_bytes)
+
+    # ── run the full RAG preparation pipeline ──────────────────────────
+    rag_bundle = prepare_rag_document(
+        document_id=chat_id,
+        filename=filename,
+        pages=pages,
+        chunk_mode=chunk_mode,
+        chunk_size=chunk_size,
+        overlap=overlap,
+        model_name=model_name,
+        batch_size=batch_size,
+        artifact_root=artifact_root,
+    )
+
+    # ── assemble the route‑level record ───────────────────────────────
+    return {
+        "saved_pdf_path": str(saved_path),
+        "file_path": str(saved_path),
+        "filename": filename,
+        "pages": pages,
+        "chunks": rag_bundle["chunks"],
+        "history": [],
+        "rag": {
+            "document_id": chat_id,
+            "index_path": rag_bundle["artifacts"]["index"],
+            "model_name": rag_bundle["model_name"],
+        },
+        "chat_id": chat_id,
+    }
+
+
+def build_upload_response(document: dict[str, object]) -> dict[str, object]:
+    """Derive the frontend‑visible upload‑success JSON from a stored document record.
+
+    Parameters
+    ----------
+    document:
+        The dict returned by :func:`prepare_rag_chat_record`.
+
+    Returns
+    -------
+    dict
+        ``{"status": "ok", "filename": "...", "pages": N, "characters": N}``
+    """
+    pages = document.get("pages", [])
+    return {
+        "status": "ok",
+        "filename": str(document.get("filename", "uploaded.pdf")),
+        "pages": len(pages),
+        "characters": sum(len(p["text"]) for p in pages),
     }
 
 
@@ -1301,12 +1432,44 @@ def build_sources(hits: list[dict[str, object]]) -> list[dict[str, object]]:
     ]
 
 
+def build_grounded_user_prompt(
+    question: str,
+    hits: list[dict[str, object]],
+    history: list[dict[str, object]] | None = None,
+) -> str:
+    """Build a grounded prompt string from retrieved evidence and optional history.
+
+    The returned string is suitable as the ``user`` message in an LLM call.
+    It includes the retrieved chunks (with page markers) and, when *history*
+    is non‑empty, an abbreviated record of recent turns.
+    """
+    # ── retrieved evidence ────────────────────────────────────────────
+    context_parts = []
+    for h in hits:
+        context_parts.append(
+            f"### [Page {h['page']}] (chunk {h['chunk_id']})\n{h['text']}"
+        )
+    context = "\n\n".join(context_parts)
+
+    # ── history prefix (brief) ────────────────────────────────────────
+    history_prefix = ""
+    if history:
+        recent = history[-3:]  # last 3 turns only
+        lines = ["## 最近对话记录"]
+        for t in recent:
+            lines.append(f"Q: {t.get('question', '')}")
+            lines.append(f"A: {str(t.get('answer', ''))[:200]}")
+        history_prefix = "\n".join(lines) + "\n\n"
+
+    return f"{history_prefix}检索结果：\n{context}\n\n问题：{question}"
+
+
 def answer_document(
     document: dict[str, object],
     question: str,
     top_k: int = 3,
     candidate_pool: int = 60,
-    answer_model: str = "tencent/hy3:free",
+    answer_model: str = "poolside/laguna-s-2.1:free",
 ) -> dict[str, object]:
     """Answer a question from a prepared document using retrieval + optional LLM.
 
@@ -1345,13 +1508,9 @@ def answer_document(
 
     if api_key:
         try:
-            # Build prompt from retrieved chunks
-            context_parts = []
-            for h in hits:
-                context_parts.append(
-                    f"### [Page {h['page']}] (chunk {h['chunk_id']})\n{h['text']}"
-                )
-            context = "\n\n".join(context_parts)
+            # Build grounded prompt including history when available
+            history = document.get("history", [])
+            prompt = build_grounded_user_prompt(question, hits, history)
 
             from openai import OpenAI
             client = OpenAI(
@@ -1379,7 +1538,7 @@ def answer_document(
                     },
                     {
                         "role": "user",
-                        "content": f"检索结果：\n{context}\n\n问题：{question}",
+                        "content": prompt,
                     },
                 ],
             )
@@ -1429,6 +1588,53 @@ def append_history(
     }
     document["history"].append(turn)
     return document["history"]
+
+
+def answer_document_turn(
+    document: dict[str, object],
+    question: str,
+    top_k: int = 3,
+    candidate_pool: int = 60,
+    answer_model: str = "poolside/laguna-s-2.1:free",
+) -> dict[str, object]:
+    """Answer one question and append the turn to *document* history.
+
+    This is a convenience wrapper around :func:`answer_document` +
+    :func:`append_history` that returns both the answer result and the
+    updated history list so callers can inspect what was recorded.
+
+    Parameters
+    ----------
+    document:
+        Stored document record (mutated in place).
+    question:
+        The user's question.
+    top_k:
+        Number of chunks to retrieve.
+    candidate_pool:
+        FAISS candidate pool size.
+    answer_model:
+        OpenRouter model id used when ``OPENROUTER_API_KEY`` is available.
+
+    Returns
+    -------
+    dict
+        ``answer`` (str), ``citations`` (list[int]), ``sources`` (list[dict]),
+        ``history`` (the updated list).
+    """
+    result = answer_document(
+        document=document,
+        question=question,
+        top_k=top_k,
+        candidate_pool=candidate_pool,
+        answer_model=answer_model,
+    )
+    history = append_history(document, question, result)
+    result["history"] = history
+    return result
+
+
+answer_chat_turn = answer_document_turn  # alias for Lab C notebook compatibility
 
 
 # ---------------------------------------------------------------------------
