@@ -98,12 +98,12 @@ function App() {
   }, [activeId, busy]);
 
   const handleUploadSuccess = useCallback((data) => {
+    // data comes from getUploadStatus polling — it's {step:"ready", chat_id, filename, pages, characters}
     setUpload(data);
     setError(null);
     setActivePage(1);
     setPreviewKey(Date.now());
     setShowUpload(false);
-    // If this is a new session, add it; otherwise refresh list
     setSessions((prev) => {
       const exists = prev.some((s) => s.chat_id === data.chat_id);
       if (exists) {

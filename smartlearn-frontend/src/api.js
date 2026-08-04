@@ -56,6 +56,11 @@ export async function uploadPDF(chatId, file) {
   return readJSON(response);
 }
 
+export async function getUploadStatus(chatId) {
+  const response = await fetch(`${API}/upload/${encodeURIComponent(chatId)}/status`);
+  return readJSON(response);
+}
+
 export async function askQuestion(chatId, message) {
   const response = await fetch(`${API}/chat`, {
     method: "POST",

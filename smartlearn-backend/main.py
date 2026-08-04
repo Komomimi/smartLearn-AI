@@ -1,6 +1,7 @@
 import os
 import re
 import sys
+import threading
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -12,8 +13,8 @@ from fastapi.responses import FileResponse
 
 from fastapi.middleware.cors import CORSMiddleware
 
-from services.llm import answer_from_pages
-from services.pdf import extract_pages
+from services.llm import answer_from_pages  # noqa: F401 — kept for Day 2 compatibility
+from services.pdf import extract_pages  # noqa: F401 — kept for Day 2 compatibility
 from services.rag import extract_pages_for_rag, prepare_rag_document, answer_chat_turn
 from services import database
 
@@ -34,6 +35,7 @@ app.add_middleware(
 )
 
 documents: dict[str, dict] = {}
+processing_status: dict[str, dict] = {}   # chat_id → {step, error, filename, pages, characters}
 
 UPLOADS_DIR = Path(__file__).parent / "uploads"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
@@ -68,70 +70,95 @@ async def upload(
     if not pdf_bytes:
         raise HTTPException(400, "File must not be empty")
 
-    # ── save PDF to disk ──────────────────────────────────────────────
+    # ── save PDF to disk (fast — done synchronously) ──────────────────
     saved_pdf_path = UPLOADS_DIR / f"{chat_id}.pdf"
     saved_pdf_path.write_bytes(pdf_bytes)
-
-    # ── extract pages (no 30‑page limit, rag‑grade cleaning) ──────────
-    try:
-        pages = extract_pages_for_rag(pdf_bytes)
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-
-    characters = sum(len(p["text"]) for p in pages)
-    if characters == 0:
-        raise HTTPException(422, "No readable text found — OCR is not supported")
-
-    # ── build the rich Day‑3 RAG record ───────────────────────────────
     filename = file.filename or "uploaded.pdf"
-    try:
-        rag_bundle = prepare_rag_document(
-            document_id=chat_id,
-            filename=filename,
-            pages=pages,
-        )
-    except Exception:
-        raise HTTPException(500, "Failed to prepare the document for RAG. Please try again.")
 
-    # Shape expected by the rag.py retrieval functions (search_document, answer_document):
-    #   document["artifacts"] = {"index": ..., "chunks": ..., "embeddings": ...}
-    #   document["model_name"] = ...
-    #   document["model_source"] = ...
-    # Also keep the keys that Lab C notebook and the frontend need:
-    #   saved_pdf_path, file_path, filename, pages, chunks, history, chat_id
-    record: dict[str, object] = {
-        "saved_pdf_path": str(saved_pdf_path),
-        "file_path": str(saved_pdf_path),
-        "filename": filename,
-        "pages": pages,
-        "chunks": rag_bundle["chunks"],
-        "history": [],
-        "chat_id": chat_id,
-        "artifacts": rag_bundle["artifacts"],
-        "model_name": rag_bundle["model_name"],
-        "model_source": rag_bundle.get("model_source", rag_bundle["model_name"]),
-    }
-    documents[chat_id] = record
+    # ── mark as processing and return immediately ─────────────────────
+    processing_status[chat_id] = {"step": "extracting", "filename": filename}
 
-    # ── persist to SQLite ───────────────────────────────────────────────
-    database.save_session(
-        chat_id=chat_id,
-        filename=filename,
-        file_path=str(saved_pdf_path),
-        pages=pages,
-        characters=characters,
-        model_name=str(rag_bundle["model_name"]),
-        model_source=str(rag_bundle.get("model_source", rag_bundle["model_name"])),
-        artifacts={k: str(v) for k, v in rag_bundle["artifacts"].items()},
-    )
+    def _process_in_background():
+        """Run the heavy RAG pipeline in a background thread."""
+        try:
+            # ── extract pages ────────────────────────────────────────
+            processing_status[chat_id] = {"step": "extracting", "filename": filename}
+            pages = extract_pages_for_rag(pdf_bytes)
+            characters = sum(len(p["text"]) for p in pages)
+            if characters == 0:
+                processing_status[chat_id] = {"step": "error", "error": "No readable text found — OCR is not supported", "filename": filename}
+                return
 
-    return {
-        "status": "ok",
-        "chat_id": chat_id,
-        "filename": filename,
-        "pages": len(pages),
-        "characters": characters,
-    }
+            processing_status[chat_id] = {"step": "chunking", "filename": filename, "pages": len(pages)}
+
+            # ── build RAG bundle ─────────────────────────────────────
+            processing_status[chat_id] = {"step": "embedding", "filename": filename, "pages": len(pages)}
+            rag_bundle = prepare_rag_document(
+                document_id=chat_id,
+                filename=filename,
+                pages=pages,
+            )
+
+            processing_status[chat_id] = {"step": "indexing", "filename": filename, "pages": len(pages)}
+
+            # ── build in-memory record ───────────────────────────────
+            record: dict[str, object] = {
+                "saved_pdf_path": str(saved_pdf_path),
+                "file_path": str(saved_pdf_path),
+                "filename": filename,
+                "pages": pages,
+                "chunks": rag_bundle["chunks"],
+                "history": [],
+                "chat_id": chat_id,
+                "artifacts": rag_bundle["artifacts"],
+                "model_name": rag_bundle["model_name"],
+                "model_source": rag_bundle.get("model_source", rag_bundle["model_name"]),
+            }
+            documents[chat_id] = record
+
+            # ── persist to SQLite ────────────────────────────────────
+            database.save_session(
+                chat_id=chat_id,
+                filename=filename,
+                file_path=str(saved_pdf_path),
+                pages=pages,
+                characters=characters,
+                model_name=str(rag_bundle["model_name"]),
+                model_source=str(rag_bundle.get("model_source", rag_bundle["model_name"])),
+                artifacts={k: str(v) for k, v in rag_bundle["artifacts"].items()},
+            )
+
+            processing_status[chat_id] = {
+                "step": "ready",
+                "filename": filename,
+                "pages": len(pages),
+                "characters": characters,
+                "chat_id": chat_id,
+            }
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            processing_status[chat_id] = {"step": "error", "error": str(e), "filename": filename}
+
+    thread = threading.Thread(target=_process_in_background, daemon=True)
+    thread.start()
+
+    return {"status": "processing", "chat_id": chat_id, "filename": filename}
+
+
+@app.get("/upload/{chat_id}/status")
+def get_upload_status(chat_id: str):
+    """Poll this endpoint to track background RAG pipeline progress.
+
+    Returns ``{"step": "ready"}`` when the document is searchable,
+    or ``{"step": "error", "error": "..."}`` on failure.
+    Possible step values: extracting, chunking, embedding, indexing, ready, error.
+    """
+    info = processing_status.get(chat_id)
+    if info is None:
+        raise HTTPException(404, "Unknown upload — it may have been cleaned up")
+    return info
 
 
 @app.post("/chat")
