@@ -8,8 +8,9 @@ export default function SettingsPanel({ onClose }) {
   const [llmModel, setLlmModel] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
-  /* ── load current settings on mount ──────────────────── */
+  /* ── load current settings when the panel opens ──────── */
   useEffect(() => {
     getSettings()
       .then((s) => {
@@ -17,9 +18,22 @@ export default function SettingsPanel({ onClose }) {
         setLlmApiKey(s.llm_api_key || "");
         setLlmBaseUrl(s.llm_base_url || "");
         setLlmModel(s.llm_model || "");
+        setLoaded(true);
       })
-      .catch(() => {});
+      .catch(() => {
+        setLoaded(true);
+      });
   }, []);
+
+  if (!loaded) {
+    return (
+      <div className="modal-overlay" onClick={onClose}>
+        <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+          <p className="settings-hint">Loading settings…</p>
+        </div>
+      </div>
+    );
+  }
 
   const handleSave = async (e) => {
     e.preventDefault();
