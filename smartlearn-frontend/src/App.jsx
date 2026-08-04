@@ -3,6 +3,7 @@ import PdfUploader from "./PdfUploader";
 import PdfPreview from "./PdfPreview";
 import ChatPanel from "./ChatPanel";
 import SessionTabs from "./SessionTabs";
+import SettingsPanel from "./SettingsPanel";
 import { listSessions, deleteSession, restoreSession, getSessionMessages } from "./api";
 
 function App() {
@@ -17,6 +18,7 @@ function App() {
   const [error, setError] = useState(null);
   const [previewKey, setPreviewKey] = useState(0);
   const [showUpload, setShowUpload] = useState(false);  // "New Upload" mode
+  const [showSettings, setShowSettings] = useState(false);
 
   const busy = uploadLoading || askLoading;
 
@@ -130,6 +132,17 @@ function App() {
         <p>Upload a lecture PDF and ask questions</p>
       </header>
 
+      {/* ── settings toggle ──────────────────────────── */}
+      <div className="settings-toggle-bar">
+        <button
+          className="btn-settings-toggle"
+          onClick={() => setShowSettings(true)}
+          title="Settings"
+        >
+          ⚙
+        </button>
+      </div>
+
       {/* ── session tabs ─────────────────────────────── */}
       {sessions.length > 0 && (
         <SessionTabs
@@ -194,6 +207,11 @@ function App() {
             />
           </div>
         </div>
+      )}
+
+      {/* ── settings modal ───────────────────────────── */}
+      {showSettings && (
+        <SettingsPanel onClose={() => setShowSettings(false)} />
       )}
     </main>
   );

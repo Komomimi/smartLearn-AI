@@ -17,6 +17,7 @@ from services.llm import answer_from_pages  # noqa: F401 — kept for Day 2 comp
 from services.pdf import extract_pages  # noqa: F401 — kept for Day 2 compatibility
 from services.rag import extract_pages_for_rag, prepare_rag_document, answer_chat_turn
 from services import database
+from services.config_loader import get_llm_config, get_embedding_model_source
 
 app = FastAPI(title="SmartLearn Lite API")
 
@@ -276,3 +277,34 @@ def restore_session(chat_id: str):
         "pages": len(pages),
         "characters": session["characters"],
     }
+
+
+# ── Settings routes ──────────────────────────────────────────────────
+
+
+@app.get("/settings")
+def get_settings():
+    """Return all user-configurable settings."""
+    return {
+        "embedding_model_path": database.get_setting("embedding_model_path", ""),
+        "llm_api_key": database.get_setting("llm_api_key", ""),
+        "llm_base_url": database.get_setting("llm_base_url", ""),
+        "llm_model": database.get_setting("llm_model", ""),
+    }
+
+
+class SettingsRequest(BaseModel):
+    embedding_model_path: str = ""
+    llm_api_key: str = ""
+    llm_base_url: str = ""
+    llm_model: str = ""
+
+
+@app.put("/settings")
+def update_settings(body: SettingsRequest):
+    """Save user-configurable settings to the database."""
+    database.set_setting("embedding_model_path", body.embedding_model_path)
+    database.set_setting("llm_api_key", body.llm_api_key)
+    database.set_setting("llm_base_url", body.llm_base_url)
+    database.set_setting("llm_model", body.llm_model)
+    return {"ok": True}

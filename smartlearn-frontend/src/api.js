@@ -69,3 +69,19 @@ export async function askQuestion(chatId, message) {
   });
   return readJSON(response);
 }
+
+// ── Settings ──────────────────────────────────────────────
+
+export async function getSettings() {
+  const response = await fetch(`${API}/settings`);
+  return readJSON(response);
+}
+
+export async function saveSettings(settings) {
+  const response = await fetch(`${API}/settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
+  });
+  return readJSON(response);
+}

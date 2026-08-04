@@ -59,6 +59,11 @@ def init_db() -> None:
         );
 
         CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages(chat_id);
+
+        CREATE TABLE IF NOT EXISTS settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
     """)
     conn.commit()
     conn.close()
@@ -204,3 +209,35 @@ def save_message(
     last_id = cursor.lastrowid
     conn.close()
     return last_id
+
+
+# ---------------------------------------------------------------------------
+# Settings (key-value store)
+# ---------------------------------------------------------------------------
+
+
+def get_setting(key: str, default: str = "") -> str:
+    """Return a setting value or *default*."""
+    conn = _connect()
+    row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    conn.close()
+    return row["value"] if row else default
+
+
+def set_setting(key: str, value: str) -> None:
+    """Insert or update a setting."""
+    conn = _connect()
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+        (key, value),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_all_settings() -> dict[str, str]:
+    """Return all settings as a flat dict."""
+    conn = _connect()
+    rows = conn.execute("SELECT key, value FROM settings").fetchall()
+    conn.close()
+    return {r["key"]: r["value"] for r in rows}

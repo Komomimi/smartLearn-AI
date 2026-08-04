@@ -837,6 +837,9 @@ def prepare_rag_document(
     When *artifact_root* is ``None`` it defaults to ``Day3/artifacts`` relative
     to the project root detected from ``rag.py``'s own file location.
 
+    The *model_name* default can be overridden by the database setting
+    ``embedding_model_path`` (checked via :func:`config_loader.get_embedding_model_source`).
+
     Parameters
     ----------
     document_id:
@@ -870,6 +873,15 @@ def prepare_rag_document(
         backend_dir = rag_dir.parent                        # smartlearn-backend/
         project_root = backend_dir.parent                   # smartLearn-AI/
         artifact_root = str(project_root.parent / "Day3" / "artifacts")
+
+    # ── resolve model_name via user settings ──────────────────────────
+    try:
+        from services.config_loader import get_embedding_model_source
+        user_model = get_embedding_model_source()
+        if user_model:
+            model_name = user_model
+    except Exception:
+        pass
 
     paths = artifact_paths_for(
         document_id, chunk_mode, model_name, chunk_size, artifact_root
@@ -1522,11 +1534,16 @@ def answer_document(
 
     # ── try LLM answering ─────────────────────────────────────────────
     api_key = None
+    base_url = "https://openrouter.ai/api/v1"
+    actual_model = answer_model
     try:
+        from services.config_loader import get_llm_config
+        cfg = get_llm_config()
+        api_key = cfg["api_key"]
+        base_url = cfg["base_url"]
+    except Exception:
         import os as _os
         api_key = _os.getenv("OPENROUTER_API_KEY")
-    except Exception:
-        pass
 
     if api_key:
         try:
@@ -1537,14 +1554,14 @@ def answer_document(
             from openai import OpenAI
             client = OpenAI(
                 api_key=api_key,
-                base_url="https://openrouter.ai/api/v1",
+                base_url=base_url,
                 default_headers={
                     "HTTP-Referer": "http://localhost:5173",
                     "X-Title": "SmartLearn AI",
                 },
             )
             response = client.chat.completions.create(
-                model=answer_model,
+                model=actual_model,
                 temperature=0.0,
                 max_tokens=2000,
                 messages=[
