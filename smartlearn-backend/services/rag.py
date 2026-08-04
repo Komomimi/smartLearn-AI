@@ -560,6 +560,28 @@ def load_model(model_name: str, device: str | None = None):
     return SentenceTransformer(model_name, device=device, local_files_only=True)
 
 
+# ---------------------------------------------------------------------------
+# Model cache — avoid reloading the ~100 MB MiniLM model on every request
+# ---------------------------------------------------------------------------
+
+_CACHED_MODEL = None
+_CACHED_MODEL_SOURCE = None
+
+
+def _get_cached_model(model_source: str):
+    """Return a cached sentence-transformer instance.
+
+    Loads the model once on first call and reuses it across subsequent calls.
+    When *model_source* differs from the currently cached model the old
+    instance is discarded and a fresh one is loaded.
+    """
+    global _CACHED_MODEL, _CACHED_MODEL_SOURCE
+    if _CACHED_MODEL is None or _CACHED_MODEL_SOURCE != model_source:
+        _CACHED_MODEL = load_model(model_source)
+        _CACHED_MODEL_SOURCE = model_source
+    return _CACHED_MODEL
+
+
 def embed_texts(model, texts: list[str], batch_size: int = 32):
     """Encode a list of texts into normalised ``float32`` vectors.
 
@@ -677,7 +699,7 @@ def ensure_artifacts(
     )
     save_json(chunks, paths["chunks"])
 
-    model = load_model(resolve_model_source(model_name, artifact_root=artifact_root))
+    model = _get_cached_model(resolve_model_source(model_name, artifact_root=artifact_root))
     texts = [str(c["text"]) for c in chunks]
     embeddings = embed_texts(model, texts, batch_size=batch_size)
     np.save(paths["embeddings"], embeddings)
@@ -1131,7 +1153,7 @@ def ensure_index(
     )
     save_json(chunks, paths["chunks"])
 
-    model = load_model(resolve_model_source(model_name, artifact_root=artifact_root))
+    model = _get_cached_model(resolve_model_source(model_name, artifact_root=artifact_root))
     texts = [str(c["text"]) for c in chunks]
     embeddings = embed_texts(model, texts, batch_size=batch_size)
     np.save(paths["embeddings"], embeddings)
@@ -1232,7 +1254,7 @@ def search_bundle(
     model_source = str(bundle.get("model_source", resolve_model_source(model_name)))
 
     # ── embed the question ───────────────────────────────────────────
-    model = load_model(model_source)
+    model = _get_cached_model(model_source)
     q_vec = embed_texts(model, [question], batch_size=batch_size)  # (1, dim)
 
     # ── FAISS search (inner product, larger than desired so we can rerank) ─

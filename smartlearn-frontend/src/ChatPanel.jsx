@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { askQuestion } from "./api";
+import { useState, useEffect } from "react";
+import { askQuestion, getSessionMessages } from "./api";
 
 
 /** One chat turn — a user question paired with the assistant response. */
@@ -59,13 +59,37 @@ function MessageBubble({ turn, onJumpToPage }) {
 }
 
 
-export default function ChatPanel({ enabled, onBusy, disabled, onJumpToPage }) {
+export default function ChatPanel({ enabled, onBusy, disabled, onJumpToPage, chatId }) {
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  /* ── derived flags ────────────────────────────────────────────────── */
+  /* ── load history from backend when chatId changes ────────── */
+  useEffect(() => {
+    let cancelled = false;
+    getSessionMessages(chatId)
+      .then((msgs) => {
+        if (cancelled) return;
+        setMessages(
+          msgs.map((m, i) => ({
+            id: `${chatId}-${i}`,
+            question: m.question,
+            answer: m.answer,
+            citations: m.citations ?? [],
+            sources: m.sources ?? [],
+          }))
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setMessages([]);
+      });
+    setError(null);
+    setMessage("");
+    return () => { cancelled = true; };
+  }, [chatId]);
+
+  /* ── derived flags ───────────────────────────────────────── */
   const blocked = !enabled || !message.trim() || disabled || loading;
 
   const handleAsk = async (e) => {
@@ -79,7 +103,7 @@ export default function ChatPanel({ enabled, onBusy, disabled, onJumpToPage }) {
     setMessage("");
 
     try {
-      const data = await askQuestion(question);
+      const data = await askQuestion(chatId, question);
       setMessages((prev) => [
         ...prev,
         {
@@ -100,7 +124,7 @@ export default function ChatPanel({ enabled, onBusy, disabled, onJumpToPage }) {
 
   return (
     <section className="chat-panel">
-      {/* ── message list ─────────────────────────────────────────── */}
+      {/* ── message list ─────────────────────────────────────── */}
       {messages.length > 0 && (
         <div className="msg-list">
           {messages.map((turn) => (
@@ -113,10 +137,10 @@ export default function ChatPanel({ enabled, onBusy, disabled, onJumpToPage }) {
         </div>
       )}
 
-      {/* ── error ────────────────────────────────────────────────── */}
+      {/* ── error ────────────────────────────────────────────── */}
       {error && <div className="alert-error" role="alert">{error}</div>}
 
-      {/* ── input form ───────────────────────────────────────────── */}
+      {/* ── input form ───────────────────────────────────────── */}
       <form onSubmit={handleAsk} className="card">
         <label htmlFor="message-input" className="card-label">
           Ask a question

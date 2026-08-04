@@ -450,3 +450,72 @@ body {
   color: var(--text-muted);
   line-height: 1.45;
 }
+
+/* ── Session tabs ───────────────────────────────── */
+.session-tabs-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid var(--border);
+}
+.session-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+.session-tab:hover {
+  background: var(--bg-card);
+  color: var(--text);
+}
+.session-tab.active {
+  background: var(--bg-card);
+  color: var(--text);
+  border-color: var(--primary);
+}
+.session-tab-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.session-tab-meta {
+  font-size: 0.7rem;
+  opacity: 0.5;
+}
+.session-tab-close {
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0 2px;
+  border-radius: 4px;
+  margin-left: 2px;
+}
+.session-tab-close:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--error);
+}
+.session-tab-new {
+  font-size: 0.82rem;
+  color: var(--primary-hover);
+  border-style: dashed;
+  padding: 0.45rem 1rem;
+}
+.session-tab-new:hover {
+  color: var(--primary-hover);
+  border-color: var(--primary);
+}
+

@@ -2,7 +2,12 @@ import { useRef, useState } from "react";
 import { uploadPDF } from "./api";
 import useLoading from "./useLoading";
 
-export default function PdfUploader({ busy, currentUpload, onSuccess, onError, onLoadingChange }) {
+/** Generate a unique chat session id (browser-native, no library needed). */
+function newChatId() {
+  return crypto.randomUUID();
+}
+
+export default function PdfUploader({ busy, currentUpload, activeChatId, onSuccess, onError, onLoadingChange }) {
   const [file, setFile] = useState(null);
   const [replacing, setReplacing] = useState(false);
   const [loading, setLoadingAndReport] = useLoading(onLoadingChange);
@@ -24,7 +29,10 @@ export default function PdfUploader({ busy, currentUpload, onSuccess, onError, o
     onError(null);
     setLoadingAndReport(true);
     try {
-      const data = await uploadPDF(file);
+      // New upload (currentUpload is null) → generate fresh chatId.
+      // Replace (currentUpload exists) → reuse the active chatId.
+      const chatId = currentUpload ? activeChatId : newChatId();
+      const data = await uploadPDF(chatId, file);
       onSuccess(data);
       setFile(null);
       setReplacing(false);

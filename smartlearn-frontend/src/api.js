@@ -1,5 +1,4 @@
 export const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
-export const CHAT_ID = "day2-demo";
 
 const FRIENDLY = {
   400: "The file could not be processed. Please check your PDF and try again.",
@@ -22,22 +21,46 @@ async function readJSON(response) {
   throw new Error(detail);
 }
 
-export async function uploadPDF(file) {
+// ── Sessions ───────────────────────────────────────────────
+
+export async function listSessions() {
+  const response = await fetch(`${API}/sessions`);
+  return readJSON(response);
+}
+
+export async function getSessionMessages(chatId) {
+  const response = await fetch(`${API}/sessions/${encodeURIComponent(chatId)}/messages`);
+  return readJSON(response);
+}
+
+export async function deleteSession(chatId) {
+  const response = await fetch(`${API}/sessions/${encodeURIComponent(chatId)}`, { method: "DELETE" });
+  return readJSON(response);
+}
+
+export async function restoreSession(chatId) {
+  const response = await fetch(`${API}/sessions/${encodeURIComponent(chatId)}/restore`, { method: "POST" });
+  return readJSON(response);
+}
+
+// ── Upload & Chat ──────────────────────────────────────────
+
+export async function uploadPDF(chatId, file) {
   const formData = new FormData();
   formData.append("file", file);
 
   const response = await fetch(
-    `${API}/upload?chat_id=${encodeURIComponent(CHAT_ID)}`,
+    `${API}/upload?chat_id=${encodeURIComponent(chatId)}`,
     { method: "POST", body: formData },
   );
   return readJSON(response);
 }
 
-export async function askQuestion(message) {
+export async function askQuestion(chatId, message) {
   const response = await fetch(`${API}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, chat_id: CHAT_ID }),
+    body: JSON.stringify({ message, chat_id: chatId }),
   });
   return readJSON(response);
 }
