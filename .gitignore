@@ -8,3 +8,6 @@ test_files/
 smartlearn-backend/uploads/
 smartlearn-backend/data/
 smartlearn-backend/artifacts/
+
+# documentation (not part of the deliverable)
+docs/
